@@ -15,7 +15,7 @@ A React storefront and Express REST API for a neighborhood Indian spice marketpl
 9. The notification bell and **My orders** show persisted shop/admin status updates with their recorded timestamps. Orders refresh every five seconds while the page is visible and when it regains focus; these are not push, email, or SMS notifications. Live rider GPS and delivery-time estimates are not provided.
 10. **Recipe book** includes eight Tamil Nadu-inspired home recipes, pantry staples, preparation steps, and catalog spice suggestions. **Add spice packs to wagon** adds one full catalog pack of each listed spice; recipe measures are cooking guidance and are not used as pack quantities.
 11. **Custom masala maker** lets customers add or remove spices while keeping the remaining blend percentages at 100%. Its preview and cart item show the leading flavor, heat description, exact ingredient ratios, and suggested dishes; the selected recipe settings are carried into the order.
-12. In local development, the database seeds clearly labeled **DEMO · TEST ONLY** listings for Chennai, Madurai, Tirunelveli, Tiruchirappalli, Coimbatore, Salem, and Kovilpatti. Their addresses and service PIN codes are fictional examples. Customers may submit a complete delivery address anywhere; admins assign a shop after ordering, then assign a courier name and phone once the order is Ready. Demo shops are not offered to customer checkout. For a temporary deployed test only, set `ALLOW_DEMO_SHOP_ASSIGNMENTS=true` on the API host to permit admins to assign demo shops and the demo courier; turn it off before accepting real customer orders. These samples are not real businesses or delivery coverage.
+12. The database seeds clearly labeled **DEMO · TEST ONLY** listings for Chennai, Madurai, Tirunelveli, Tiruchirappalli, Coimbatore, Salem, and Kovilpatti. Their addresses and service PIN codes are fictional examples. Customers may submit a complete delivery address anywhere; admins assign a shop after ordering, then assign a courier name and phone once the order is Ready. Demo shops are not offered to customer checkout. `ALLOW_DEMO_SHOP_ASSIGNMENTS` defaults to enabled for testing; set it to `false` on the API host before accepting real customer orders to prevent demo shop/courier assignments. These samples are not real businesses or delivery coverage.
 
 Run `npm test` for marketplace rule tests. `npm run build` creates the production frontend bundle. `npm start` runs the Express API; serve the generated `dist` directory from a static web host or reverse proxy the frontend and `/api` to the API.
 
@@ -47,7 +47,7 @@ Online checkout requires Razorpay credentials. Use Razorpay **test-mode** keys f
 | `CLIENT_ORIGIN` | Optional allowed browser origin |
 | `MONGODB_URI` | MongoDB connection string |
 | `JWT_SECRET` | Secret used to sign and verify account tokens |
-| `ALLOW_DEMO_SHOP_ASSIGNMENTS` | Set to `true` only for temporary testing to enable demo shop/courier assignment; defaults to disabled |
+| `ALLOW_DEMO_SHOP_ASSIGNMENTS` | Set to `false` to disable demo shop/courier assignment; defaults to enabled for testing |
 | `RAZORPAY_KEY_ID` | Razorpay public checkout key, supplied by the API |
 | `RAZORPAY_KEY_SECRET` | Private Razorpay key; never sent to the browser |
 

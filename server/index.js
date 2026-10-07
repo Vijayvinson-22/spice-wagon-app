@@ -19,7 +19,7 @@ import { verifyRazorpaySignature } from './payment-rules.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
-const allowDemoShopAssignments = process.env.ALLOW_DEMO_SHOP_ASSIGNMENTS === 'true';
+const allowDemoShopAssignments = process.env.ALLOW_DEMO_SHOP_ASSIGNMENTS !== 'false';
 const legacyDemoShopSlugs = ['spice-route-mill', 'ammammas-pantry', 'mysore-heritage-masalas'];
 const demoShops = [
   { name: 'DEMO · Chennai Heritage Masala Mill', slug: 'demo-chennai-heritage-masala-mill', district: 'Chennai', servicePincodes: ['600083'], location: { lat: 13.0258, lng: 80.2211 }, blend: 'Chennai-style sambar and rasam blends' },

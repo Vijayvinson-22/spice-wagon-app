@@ -60,7 +60,7 @@ const describeBlend = (weights, controls) => {
     composition,
   };
 };
-const steps = ['Order placed', 'Shop accepted', 'Ingredients checked', 'Milling', 'Quality check', 'Packed', 'Ready', 'Out for delivery', 'Delivered'];
+const steps = ['Order placed', 'Shop accepted', 'Ingredients checked', 'Milling', 'Quality check', 'Order prepared', 'Packed', 'Ready', 'Delivery assigned', 'Out for delivery', 'Delivered'];
 const recipes = [
   {
     id: 'chennai-sambar',
@@ -259,8 +259,10 @@ const tamilCopy = {
   'Ingredients checked': 'பொருட்கள் சரிபார்க்கப்பட்டன',
   'Milling': 'அரைப்பது நடைபெறுகிறது',
   'Quality check': 'தரச் சோதனை',
+  'Order prepared': 'ஆர்டர் தயார் செய்யப்பட்டது',
   'Packed': 'பொதி செய்யப்பட்டது',
   'Ready': 'தயார்',
+  'Delivery assigned': 'டெலிவரி ஒதுக்கப்பட்டது',
   'Out for delivery': 'டெலிவரிக்கு புறப்பட்டது',
   'Delivered': 'டெலிவரி செய்யப்பட்டது',
   'Rejected': 'நிராகரிக்கப்பட்டது',
@@ -373,6 +375,10 @@ function mapOrderRecord(record) {
     id: record._id,
     total: record.total,
     status: record.status,
+    shopName: record.shopId?.name || '',
+    courierName: record.courierName || '',
+    courierPhone: record.courierPhone || '',
+    courierIsDemo: record.courierIsDemo === true,
     statusHistory: record.statusHistory || [],
     deliveryLocation: record.deliveryLocation || null,
     paymentStatus: record.paymentStatus === 'paid' ? 'Paid' : record.paymentStatus === 'pay_on_delivery' ? 'Pay on delivery' : record.paymentStatus === 'failed' ? 'Payment failed' : 'Payment pending',
@@ -839,10 +845,7 @@ function App() {
   const submitOrder = async () => {
     if (checkoutBusy) return;
     if (!cart.length) return notify('Add something delicious before checking out');
-    if (deliveryAddress.trim().length < 10) return notify('Enter your complete Chennai delivery address in checkout or your profile.');
-    const postalCode = pincodeFor(deliveryAddress);
-    if (!postalCode) return notify('Add a valid six-digit postal code to your delivery address.');
-    if (!marketplaceShops.some((shop) => shop.servicePincodes?.includes(postalCode))) return notify(`No approved shop currently serves postal code ${postalCode}.`);
+    if (deliveryAddress.trim().length < 10) return notify('Enter a complete delivery address (at least 10 characters).');
     if (!user?.token) {
       notify('Sign in from your profile before placing an order');
       setCheckoutOpen(false);
@@ -861,7 +864,7 @@ function App() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Your order could not be placed.');
-      order = { id: data.order._id, items: [...cart], total: data.order.total, status: data.order.status, statusHistory: data.order.statusHistory || [], deliveryLocation: data.order.deliveryLocation || deliveryLocation, paymentStatus: paymentMethod === 'cod' ? 'Pay on delivery' : 'Payment pending', createdAt: data.order.createdAt, deliveryAddress: data.order.deliveryAddress };
+      order = { id: data.order._id, items: [...cart], total: data.order.total, status: data.order.status, statusHistory: data.order.statusHistory || [], shopName: '', courierName: '', courierPhone: '', courierIsDemo: false, deliveryLocation: data.order.deliveryLocation || deliveryLocation, paymentStatus: paymentMethod === 'cod' ? 'Pay on delivery' : 'Payment pending', createdAt: data.order.createdAt, deliveryAddress: data.order.deliveryAddress };
       if (paymentMethod === 'razorpay') {
         const payment = data.payment;
         if (!payment?.keyId) throw new Error('The payment gateway could not be initialized.');
@@ -1087,7 +1090,7 @@ function App() {
         </div>
       </main>
 
-      {checkoutOpen && <CheckoutModal method={paymentMethod} setMethod={setPaymentMethod} busy={checkoutBusy} total={subtotal} address={deliveryAddress} setAddress={setDeliveryAddress} deliveryLocation={deliveryLocation} onLocate={captureDeliveryLocation} onReverseAddress={lookupDeliveryAddress} shopsLoading={shopsLoading} shopsError={shopsError} covered={Boolean(pincodeFor(deliveryAddress) && marketplaceShops.some((shop) => shop.servicePincodes?.includes(pincodeFor(deliveryAddress))))} hasPincode={Boolean(pincodeFor(deliveryAddress))} onClose={() => !checkoutBusy && setCheckoutOpen(false)} onSubmit={submitOrder} />}
+      {checkoutOpen && <CheckoutModal method={paymentMethod} setMethod={setPaymentMethod} busy={checkoutBusy} total={subtotal} address={deliveryAddress} setAddress={setDeliveryAddress} deliveryLocation={deliveryLocation} onLocate={captureDeliveryLocation} onReverseAddress={lookupDeliveryAddress} onClose={() => !checkoutBusy && setCheckoutOpen(false)} onSubmit={submitOrder} />}
       {subscriptionEditor && <SubscriptionEditorModal subscription={subscriptionEditor} onClose={() => setSubscriptionEditor(null)} onSave={saveSubscription} />}
       {toast && <div className="toast"><span className="toast-check"><Check size={14} /></span>{toast}</div>}
     </div>
@@ -1409,7 +1412,7 @@ function ShopsPage({ shops: availableShops, loading, error, deliveryPincode, pin
           {!loading && !error && matchingShops.length === 0 && <div className="shop-coverage-empty"><MapPin size={24} /><strong>{translate('No shops match these filters.', language)}</strong><span>{language === 'ta' ? 'மற்றொரு பகுதியை அல்லது PIN குறியீட்டை முயற்சிக்கவும்.' : 'Try another area or postal code, or clear the filters to browse all approved shops.'}</span></div>}
           {matchingShops.map((item) => (
             <button className={`shop-result ${shop?._id === item._id ? 'shop-result-active' : ''}`} key={item._id || item.name} onClick={() => setSelected(availableShops.indexOf(item))}>
-              <div className="shop-result-top"><div className="shop-color-swatch" style={{ background: item.color }}><Store size={17} /></div><span className="open-state">LISTED</span></div>
+              <div className="shop-result-top"><div className="shop-color-swatch" style={{ background: item.color }}><Store size={17} /></div><span className="open-state">{item.isDemo ? 'DEMO · TEST ONLY' : 'LISTED'}</span></div>
               <div className="shop-result-title"><h3>{item.name}</h3><span><Star size={13} fill="currentColor" /> {item.rating}</span></div>
               <p>{item.area}</p>
               <div className="shop-result-meta"><span><MapPin size={12} /> {distanceFor(item)}</span><span><Package size={12} /> {item.products}</span></div>
@@ -1574,6 +1577,11 @@ function TrackingPage({ order, step, onOrders }) {
         </div>}
         <div className="timeline-current"><span className="current-check"><CheckCircle2 size={18} /></span><div><strong>{translate(order.status, language)}</strong><small>{latestUpdate?.note || 'Waiting for the shop to record the next update.'}</small></div><span className="order-status-pill">{translate(order.status, language)}</span></div>
         {history.length > 0 && <div className="tracking-history">{history.map((entry, index) => <div className="tracking-history-row" key={`${entry.status}-${entry.at}-${index}`}><strong>{translate(entry.status, language)}</strong><span>{entry.note || 'Status updated'}</span><time>{entry.at ? new Date(entry.at).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN') : 'Time unavailable'}</time></div>)}</div>}
+      </div>
+      <div className="tracking-assignment">
+        <strong>DELIVERY TEAM</strong>
+        <span>{order.shopName ? `Shop: ${order.shopName}` : 'Shop assignment pending'}</span>
+        {order.courierName && <span>Courier: {order.courierName}{order.courierPhone ? ` · ${order.courierPhone}` : ''}{order.courierIsDemo ? ' · DEMO TEST ONLY' : ''}</span>}
       </div>
       <div className="tracking-address"><MapPin size={15} /><span>DELIVERING TO <address>{order.deliveryAddress}</address></span><button onClick={onOrders}>Order details <ArrowUpRight size={14} /></button></div>
       <Footer />
@@ -2028,7 +2036,7 @@ function AdminDashboardPage({ user, notify }) {
       {loadError && <div className="dashboard-error" role="alert"><span>{loadError}</span><button className="button-outline" onClick={() => refresh().catch(() => {})}>Retry</button></div>}
       {loading && !dashboard && <p className="dashboard-empty">Loading admin data…</p>}
       <div className="dashboard-metrics">{[['CUSTOMERS', dashboard?.customers], ['APPROVED TAMIL NADU SHOPS', dashboard?.shops], ['ORDERS PLACED', dashboard?.orders], ['ACTIVE RITUALS', dashboard?.activeSubscriptions], ['ORDER VALUE', dashboard ? formatPrice(dashboard.orderValue) : '—']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value ?? '—'}</strong></div>)}</div>
-      <section className="dashboard-panel tn-admin-service-panel"><div className="dashboard-panel-heading"><div><span>CHENNAI & TAMIL NADU SERVICE AREAS</span><h2>Add a local shop by its street address.</h2></div><span>VERIFIED PIN CODES ONLY</span></div><p className="tn-admin-intro">Enter a real street address and service PIN codes. Use the address lookup to place its map pin—no latitude/longitude entry. New shops need admin approval before they can receive orders.</p><AdminShopEditor key="new-shop" shop={null} user={user} notify={notify} onSaved={refresh} /></section>
+      <section className="dashboard-panel tn-admin-service-panel"><div className="dashboard-panel-heading"><div><span>CHENNAI & TAMIL NADU SERVICE AREAS</span><h2>Add a local shop by its street address.</h2></div><span>LIVE SHOPS REQUIRE VERIFIED DETAILS</span></div><p className="tn-admin-intro">For live shops, enter a real street address and verified service PIN codes, then add its map pin and approve it. Demo shops are clearly labeled, use fictional addresses and sample PIN codes, and are available only in local/test mode.</p><AdminShopEditor key="new-shop" shop={null} user={user} notify={notify} onSaved={refresh} /></section>
       <section className="dashboard-panel tn-admin-shops-panel">
         <div className="dashboard-panel-heading"><div><span>MEET THE MAKERS</span><h2>Shop addresses and approvals.</h2></div><span>{shopsList.filter((shop) => !shop.approved).length} TO REVIEW</span></div>
         {shopsList.length ? shopsList.map((shop) => {
@@ -2036,7 +2044,7 @@ function AdminDashboardPage({ user, notify }) {
           const canApprove = Object.values(readiness).every(Boolean);
           return <article className="tn-admin-shop-card" key={shop._id}>
             <div className="tn-admin-shop-card-heading">
-              <div><h3>{shop.name}</h3><address>{shop.address}</address></div>
+              <div><h3>{shop.name} {shop.isDemo && <span className="demo-shop-badge">DEMO · TEST ONLY</span>}</h3><address>{shop.address}</address></div>
               <div className="tn-shop-approval-action">
                 <button className="button-outline" disabled={!shop.approved && !canApprove} title={!shop.approved && !canApprove ? 'Complete the address, PIN code, and map pin checklist before approval.' : undefined} onClick={() => approveShop(shop, !shop.approved)}>{shop.approved ? 'Pause shop' : canApprove ? 'Approve shop' : 'Complete checklist to approve'}</button>
               </div>
@@ -2052,20 +2060,105 @@ function AdminDashboardPage({ user, notify }) {
       </div>
       <section className="dashboard-panel dashboard-orders"><div className="dashboard-panel-heading"><div><span>THE WHOLE MARKETPLACE</span><h2>Orders & delivery.</h2></div></div>{orders.length ? orders.map((order) => {
         const latestUpdate = order.statusHistory?.[order.statusHistory.length - 1];
-        return <div className="admin-simple-row admin-order-row" key={order._id}><span><strong>#{String(order._id).slice(-6)} · {order.items.map((item) => item.name).join(', ')}</strong><small>{order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Razorpay'} · {order.paymentStatus} · {formatPrice(order.total)}</small><small>{latestUpdate?.at ? `Status updated ${new Date(latestUpdate.at).toLocaleString('en-IN')}` : 'No status history recorded yet'}</small><address className="admin-order-address">{order.deliveryAddress}</address>{order.deliveryLocation && <small>Optional GPS pin saved · accuracy ±{Math.round(order.deliveryLocation.accuracy || 0)} m</small>}</span><select aria-label={`Order ${order._id} status`} value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{orderStatusChoices(order.status).map((status) => <option key={status}>{status}</option>)}</select></div>;
+        return <div className="admin-order-group" key={order._id}>
+          <div className="admin-simple-row admin-order-row"><span><strong>#{String(order._id).slice(-6)} · {order.items.map((item) => item.name).join(', ')}</strong><small>{order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Razorpay'} · {order.paymentStatus} · {formatPrice(order.total)}</small><small>{latestUpdate?.at ? `Status updated ${new Date(latestUpdate.at).toLocaleString('en-IN')}` : 'No status history recorded yet'}</small><address className="admin-order-address">{order.deliveryAddress}</address>{order.deliveryLocation && <small>Optional GPS pin saved · accuracy ±{Math.round(order.deliveryLocation.accuracy || 0)} m</small>}</span><select aria-label={`Order ${order._id} status`} value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{orderStatusChoices(order.status).map((status) => <option key={status}>{status}</option>)}</select></div>
+          <AdminOrderAssignment order={order} shops={shopsList} user={user} notify={notify} onSaved={refresh} />
+        </div>;
       }) : <p className="dashboard-empty">No orders to review yet.</p>}</section>
       <Footer />
     </section>
   );
 }
 
-function CheckoutModal({ method, setMethod, busy, total, address, setAddress, deliveryLocation, onLocate, onReverseAddress, shopsLoading, shopsError, covered, hasPincode, onClose, onSubmit }) {
+function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
+  const [shopId, setShopId] = useState(String(order.shopId?._id || order.shopId || ''));
+  const [courierName, setCourierName] = useState(order.courierName || '');
+  const [courierPhone, setCourierPhone] = useState(order.courierPhone || '');
+  const [courierIsDemo, setCourierIsDemo] = useState(order.courierIsDemo === true);
+  const [saving, setSaving] = useState(false);
+  const courierAssignable = ['Ready', 'Delivery assigned', 'Out for delivery'].includes(order.status);
+
+  useEffect(() => {
+    setShopId(String(order.shopId?._id || order.shopId || ''));
+    setCourierName(order.courierName || '');
+    setCourierPhone(order.courierPhone || '');
+    setCourierIsDemo(order.courierIsDemo === true);
+  }, [order.shopId, order.courierName, order.courierPhone, order.courierIsDemo]);
+
+  const selectCourier = (event) => {
+    const demoSelected = event.target.value === 'demo';
+    setCourierIsDemo(demoSelected);
+    if (demoSelected) {
+      setCourierName('Demo Courier Arjun (TEST ONLY)');
+      setCourierPhone('9000000001');
+    } else if (courierIsDemo) {
+      setCourierName('');
+      setCourierPhone('');
+    }
+  };
+
+  const saveAssignment = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await apiRequest(`/api/admin/orders/${order._id}/assignment`, user.token, {
+        method: 'PATCH',
+        body: JSON.stringify({ shopId: shopId || null, courierName, courierPhone, courierIsDemo }),
+      });
+      await onSaved();
+      notify('Order assignment saved');
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <form className="admin-order-assignment" onSubmit={saveAssignment}>
+    <label>ASSIGN SHOP
+      <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
+        <option value="">Unassigned</option>
+        {shops.filter((shop) => shop.approved).map((shop) => <option value={shop._id} key={shop._id}>{shop.name}{shop.isDemo ? ' · DEMO TEST ONLY' : ''}</option>)}
+      </select>
+    </label>
+    <label>COURIER
+      <select value={courierIsDemo ? 'demo' : 'manual'} onChange={selectCourier} disabled={!courierAssignable || !import.meta.env.DEV}>
+        <option value="manual">Enter real courier details</option>
+        {import.meta.env.DEV && <option value="demo">Demo Courier Arjun · TEST ONLY</option>}
+      </select>
+      <input aria-label="Courier name" value={courierName} onChange={(event) => { setCourierIsDemo(false); setCourierName(event.target.value); }} disabled={!courierAssignable || courierIsDemo} maxLength="100" placeholder={courierAssignable ? 'Courier full name' : 'Available when order is Ready'} />
+      {courierIsDemo && <small className="demo-courier-note">Fictional test courier and phone number; not for contacting a real driver.</small>}
+    </label>
+    <label>COURIER PHONE
+      <input value={courierPhone} onChange={(event) => { setCourierIsDemo(false); setCourierPhone(event.target.value); }} disabled={!courierAssignable || courierIsDemo} maxLength="20" inputMode="tel" placeholder="Courier contact number" />
+    </label>
+    <button className="button-outline" disabled={saving}>{saving ? 'Saving…' : 'Save assignment'}</button>
+  </form>;
+}
+
+function CheckoutModal({ method, setMethod, busy, total, address, setAddress, deliveryLocation, onLocate, onReverseAddress, onClose, onSubmit }) {
   const language = useLanguage();
   const lookupAddress = async () => {
     const resolved = await onReverseAddress();
     if (resolved) setAddress(resolved);
   };
-  return <div className="modal-backdrop" onClick={onClose}><section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button><SectionEyebrow>{language === 'ta' ? 'இறுதி விவரம்' : 'ONE LAST LITTLE THING'}</SectionEyebrow><h2 id="checkout-title">{language === 'ta' ? <>உங்கள் <em>விருப்பப்படி.</em></> : <>Make it <em>yours.</em></>}</h2><p>One quick check before your neighborhood maker gets to work.</p><label className="checkout-address"><MapPin size={17} /><span>{translate('DELIVERING TO', language)}<textarea aria-label="Delivery address" required minLength="10" rows="3" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="House, street, neighborhood, city and six-digit postal code" /></span></label><div className="gps-location-control checkout-gps"><button className="button-outline" type="button" onClick={onLocate}><LocateFixed size={15} /> {deliveryLocation ? 'Refresh GPS pin' : 'Use this device’s GPS'}</button>{deliveryLocation ? <span>Pin saved · ±{Math.round(deliveryLocation.accuracy || 0)} m</span> : <span>Optional location pin; it does not replace the street address.</span>}</div>{deliveryLocation && <><button className="button-outline address-lookup-button" type="button" onClick={lookupAddress}>Look up address from GPS</button><small className="address-lookup-disclosure">Only when you click: coordinates are sent to OpenStreetMap/Nominatim. Review and edit the result before ordering.</small><LocationPreview location={deliveryLocation} label="Delivery GPS pin" /></>}<div className="checkout-coverage" role="status">{shopsLoading ? 'Checking approved shop coverage…' : shopsError ? `Shop coverage could not be checked: ${shopsError}` : !hasPincode ? 'Add your six-digit delivery postal code to check availability.' : covered ? translate('An approved shop serves this postal code.', language) : translate('Delivery is not available for this postal code yet.', language)}</div><span className="payment-label">{translate('HOW WOULD YOU LIKE TO PAY?', language)}</span><div className="payment-options"><button type="button" className={method === 'cod' ? 'payment-selected' : ''} onClick={() => setMethod('cod')}><span className="payment-radio" /><span><strong>{translate('Cash on delivery', language)}</strong><small>Pay when your spices arrive</small></span><span className="cod-symbol">₹</span></button><button type="button" className={method === 'razorpay' ? 'payment-selected' : ''} onClick={() => setMethod('razorpay')}><span className="payment-radio" /><span><strong>{translate('Pay online securely', language)}</strong><small>UPI · Card · Net banking</small></span><span className="razorpay-mark">Razorpay</span></button></div><div className="checkout-total"><span>All in, just</span><strong>{formatPrice(total + (total >= 499 ? 0 : 40))}</strong></div><button className="button-primary full-button" disabled={busy || shopsLoading || Boolean(shopsError) || !covered || !hasPincode} onClick={onSubmit}>{busy ? (language === 'ta' ? 'செயலாக்கப்படுகிறது…' : 'Processing…') : shopsLoading ? 'Checking shop coverage…' : method === 'cod' ? translate('Place my order', language) : translate('Continue to secure payment', language)} <ArrowRight size={16} /></button><span className="checkout-safe"><BadgeCheck size={14} /> Your payment details are always protected.</span></section></div>;
+  return <div className="modal-backdrop" onClick={onClose}>
+    <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title" onClick={(event) => event.stopPropagation()}>
+      <button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <SectionEyebrow>{language === 'ta' ? 'இறுதி விவரம்' : 'ONE LAST LITTLE THING'}</SectionEyebrow>
+      <h2 id="checkout-title">{language === 'ta' ? <>உங்கள் <em>விருப்பப்படி.</em></> : <>Make it <em>yours.</em></>}</h2>
+      <p>Enter a complete delivery address. The admin team will assign a shop for your area.</p>
+      <label className="checkout-address"><MapPin size={17} /><span>{translate('DELIVERING TO', language)}<textarea aria-label="Delivery address" required minLength="10" maxLength="500" rows="3" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="House, street, area, city, state and postal code (if available)" /></span></label>
+      <div className="gps-location-control checkout-gps"><button className="button-outline" type="button" onClick={onLocate}><LocateFixed size={15} /> {deliveryLocation ? 'Refresh GPS pin' : 'Use this device’s GPS'}</button>{deliveryLocation ? <span>Pin saved · ±{Math.round(deliveryLocation.accuracy || 0)} m</span> : <span>Optional location pin; it does not replace the street address.</span>}</div>
+      {deliveryLocation && <><button className="button-outline address-lookup-button" type="button" onClick={lookupAddress}>Look up address from GPS</button><small className="address-lookup-disclosure">Only when you click: coordinates are sent to OpenStreetMap/Nominatim. Review and edit the result before ordering.</small><LocationPreview location={deliveryLocation} label="Delivery GPS pin" /></>}
+      <div className="checkout-coverage" role="status">Any complete delivery address is accepted. A shop is assigned by admin after the order is placed.</div>
+      <span className="payment-label">{translate('HOW WOULD YOU LIKE TO PAY?', language)}</span>
+      <div className="payment-options"><button type="button" className={method === 'cod' ? 'payment-selected' : ''} onClick={() => setMethod('cod')}><span className="payment-radio" /><span><strong>{translate('Cash on delivery', language)}</strong><small>Pay when your spices arrive</small></span><span className="cod-symbol">₹</span></button><button type="button" className={method === 'razorpay' ? 'payment-selected' : ''} onClick={() => setMethod('razorpay')}><span className="payment-radio" /><span><strong>{translate('Pay online securely', language)}</strong><small>UPI · Card · Net banking</small></span><span className="razorpay-mark">Razorpay</span></button></div>
+      <div className="checkout-total"><span>All in, just</span><strong>{formatPrice(total + (total >= 499 ? 0 : 40))}</strong></div>
+      <button className="button-primary full-button" disabled={busy || address.trim().length < 10} onClick={onSubmit}>{busy ? (language === 'ta' ? 'செயலாக்கப்படுகிறது…' : 'Processing…') : method === 'cod' ? translate('Place my order', language) : translate('Continue to secure payment', language)} <ArrowRight size={16} /></button>
+      <span className="checkout-safe"><BadgeCheck size={14} /> Your payment details are always protected.</span>
+    </section>
+  </div>;
 }
 
 function Footer({ onNavigate = () => {} }) {

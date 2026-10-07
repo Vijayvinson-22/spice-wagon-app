@@ -26,6 +26,7 @@ const shopSchema = new mongoose.Schema({
   certifications: [{ name: String, documentUrl: String, verified: { type: Boolean, default: false } }],
   ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   approved: { type: Boolean, default: false },
+  isDemo: { type: Boolean, default: false },
   openingTime: { type: String, default: '09:00' },
   closingTime: { type: String, default: '20:00' },
 }, { timestamps: true });
@@ -41,6 +42,9 @@ const orderItemSchema = new mongoose.Schema({
 const orderSchema = new mongoose.Schema({
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+  courierName: { type: String, trim: true, maxlength: 100 },
+  courierPhone: { type: String, trim: true, maxlength: 20 },
+  courierIsDemo: { type: Boolean, default: false },
   items: { type: [orderItemSchema], required: true, validate: (items) => items.length > 0 },
   subtotal: { type: Number, required: true, min: 1 },
   deliveryFee: { type: Number, default: 0, min: 0 },
@@ -52,7 +56,7 @@ const orderSchema = new mongoose.Schema({
     accuracy: { type: Number, min: 0 },
     updatedAt: Date,
   },
-  status: { type: String, enum: ['Order placed', 'Shop accepted', 'Ingredients checked', 'Milling', 'Quality check', 'Packed', 'Ready', 'Out for delivery', 'Delivered', 'Rejected', 'Cancelled'], default: 'Order placed' },
+  status: { type: String, enum: ['Order placed', 'Shop accepted', 'Ingredients checked', 'Milling', 'Quality check', 'Order prepared', 'Packed', 'Ready', 'Delivery assigned', 'Out for delivery', 'Delivered', 'Rejected', 'Cancelled'], default: 'Order placed' },
   statusHistory: [{ status: String, note: String, at: { type: Date, default: Date.now } }],
   paymentMethod: { type: String, enum: ['cod', 'razorpay'], required: true },
   paymentStatus: { type: String, enum: ['pending', 'paid', 'pay_on_delivery', 'failed', 'refunded'], default: 'pending' },

@@ -14,12 +14,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Product, Shop, Order, Subscription, CustomBlend, User } from './models.js';
 import { allowRoles, authenticate } from './middleware/auth.js';
-import { isAllowedOrderTransition, normalizePincodes, pincodeFromAddress, shopCoversPincode, shopReadiness } from './marketplace-rules.js';
+import { canAssignCourier, isAllowedOrderTransition, normalizePincodes, orderAssignmentError, shopReadiness } from './marketplace-rules.js';
 import { verifyRazorpaySignature } from './payment-rules.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
 const legacyDemoShopSlugs = ['spice-route-mill', 'ammammas-pantry', 'mysore-heritage-masalas'];
+const demoShops = [
+  { name: 'DEMO · Chennai Heritage Masala Mill', slug: 'demo-chennai-heritage-masala-mill', district: 'Chennai', servicePincodes: ['600083'], location: { lat: 13.0258, lng: 80.2211 }, blend: 'Chennai-style sambar and rasam blends' },
+  { name: 'DEMO · Madurai Temple Town Spice Mill', slug: 'demo-madurai-temple-town-spice-mill', district: 'Madurai', servicePincodes: ['625001'], location: { lat: 9.9195, lng: 78.1193 }, blend: 'Madurai-style kari masala blends' },
+  { name: 'DEMO · Tirunelveli Tamiraparani Masalas', slug: 'demo-tirunelveli-tamiraparani-masalas', district: 'Tirunelveli', servicePincodes: ['627001'], location: { lat: 8.7139, lng: 77.7567 }, blend: 'Tirunelveli-style pepper and curry blends' },
+  { name: 'DEMO · Tiruchirappalli Rockfort Spice Works', slug: 'demo-tiruchirappalli-rockfort-spice-works', district: 'Tiruchirappalli', servicePincodes: ['620001'], location: { lat: 10.8282, lng: 78.6947 }, blend: 'Trichy-style sambar and chilli blends' },
+  { name: 'DEMO · Coimbatore Kongu Masala House', slug: 'demo-coimbatore-kongu-masala-house', district: 'Coimbatore', servicePincodes: ['641001'], location: { lat: 10.9967, lng: 76.9629 }, blend: 'Kongu-style home masala blends' },
+  { name: 'DEMO · Salem Mango City Spice Mill', slug: 'demo-salem-mango-city-spice-mill', district: 'Salem', servicePincodes: ['636001'], location: { lat: 11.6643, lng: 78.146 }, blend: 'Salem-style pepper and turmeric blends' },
+  { name: 'DEMO · Kovilpatti Kadalai Masala Works', slug: 'demo-kovilpatti-kadalai-masala-works', district: 'Kovilpatti', servicePincodes: ['628501'], location: { lat: 9.1717, lng: 77.8699 }, blend: 'Kovilpatti-inspired chilli and snack masalas' },
+];
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDirectory = path.join(dirname, 'uploads');
 await mkdir(uploadDirectory, { recursive: true });
@@ -168,7 +177,7 @@ app.patch('/api/products/:id', dbRequired, authenticate, allowRoles('shop_owner'
 
 app.get('/api/shops', dbRequired, async (_req, res, next) => {
   try {
-    const filter = { approved: true, servicePincodes: { $exists: true, $ne: [] } };
+    const filter = { approved: true, servicePincodes: { $exists: true, $ne: [] }, ...(process.env.NODE_ENV === 'production' ? { isDemo: { $ne: true } } : {}) };
     if (typeof _req.query.pincode === 'string') {
       if (!/^\d{6}$/.test(_req.query.pincode)) return res.status(400).json({ message: 'Enter a valid six-digit postal code.' });
       filter.servicePincodes = _req.query.pincode;
@@ -260,10 +269,6 @@ app.post('/api/orders', dbRequired, authenticate, async (req, res, next) => {
     if (!['cod', 'razorpay'].includes(paymentMethod)) return res.status(400).json({ message: 'Choose cash on delivery or Razorpay.' });
     if (typeof deliveryAddress !== 'string' || deliveryAddress.trim().length < 10 || deliveryAddress.length > 500) return res.status(400).json({ message: 'Enter a complete delivery address.' });
     if (deliveryLocation !== undefined && !validDeliveryLocation(deliveryLocation)) return res.status(400).json({ message: 'GPS coordinates are invalid.' });
-    const pincode = pincodeFromAddress(deliveryAddress);
-    if (!pincode) return res.status(400).json({ message: 'Add the six-digit delivery postal code to your address.' });
-    const deliveryShop = await Shop.findOne({ approved: true, servicePincodes: pincode }).select('_id').lean();
-    if (!deliveryShop) return res.status(409).json({ message: 'Delivery is not available for this postal code yet. Check Local shops or contact support.' });
     const orderItems = [];
     for (const item of items) {
       if (!item || typeof item.productId !== 'string' || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 50) return res.status(400).json({ message: 'Each order item needs a product and a quantity from 1 to 50.' });
@@ -282,7 +287,7 @@ app.post('/api/orders', dbRequired, authenticate, async (req, res, next) => {
     const deliveryFee = subtotal >= 499 ? 0 : 40;
     const total = subtotal + deliveryFee;
     const paymentStatus = paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending';
-    const order = new Order({ customerId: req.user._id, shopId: deliveryShop._id, items: orderItems, subtotal, deliveryFee, total, deliveryAddress: deliveryAddress.trim(), deliveryLocation: normalizeDeliveryLocation(deliveryLocation) || req.user.deliveryLocation, paymentMethod, paymentStatus, statusHistory: [{ status: 'Order placed', note: 'Your order was accepted for processing by a shop that serves this postal code.' }] });
+    const order = new Order({ customerId: req.user._id, items: orderItems, subtotal, deliveryFee, total, deliveryAddress: deliveryAddress.trim(), deliveryLocation: normalizeDeliveryLocation(deliveryLocation) || req.user.deliveryLocation, paymentMethod, paymentStatus, statusHistory: [{ status: 'Order placed', note: 'Your order was received. The marketplace admin will assign a shop.' }] });
     if (paymentMethod === 'razorpay' && (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET)) return res.status(503).json({ message: 'Online payment is not configured. Choose cash on delivery or contact the shop.' });
     for (const item of orderItems) {
       if (item.productId === 'custom-blend') continue;
@@ -352,7 +357,38 @@ app.post('/api/payments/verify', dbRequired, authenticate, async (req, res, next
 app.get('/api/orders', dbRequired, authenticate, async (req, res, next) => {
   try {
     const filter = req.user.role === 'admin' ? {} : req.user.role === 'shop_owner' ? { shopId: { $in: await Shop.find({ ownerId: req.user._id }).distinct('_id') } } : { customerId: req.user._id };
-    return res.json({ orders: await Order.find(filter).sort({ createdAt: -1 }).limit(100).lean() });
+    return res.json({ orders: await Order.find(filter).populate('shopId', 'name isDemo').sort({ createdAt: -1 }).limit(100).lean() });
+  } catch (error) { return next(error); }
+});
+
+app.patch('/api/admin/orders/:id/assignment', dbRequired, authenticate, allowRoles('admin'), async (req, res, next) => {
+  try {
+    const { shopId, courierName, courierPhone, courierIsDemo = false } = req.body || {};
+    if (shopId !== undefined && shopId !== null && typeof shopId !== 'string') return res.status(400).json({ message: 'Choose a valid shop or leave the order unassigned.' });
+    if (shopId && !mongoose.isValidObjectId(shopId)) return res.status(400).json({ message: 'Choose a valid shop or leave the order unassigned.' });
+    if (typeof courierIsDemo !== 'boolean') return res.status(400).json({ message: 'Courier demo assignment must be true or false.' });
+    const name = typeof courierName === 'string' ? courierName.trim() : '';
+    const phone = typeof courierPhone === 'string' ? courierPhone.trim() : '';
+    if (Boolean(name) !== Boolean(phone)) return res.status(400).json({ message: 'Enter both the courier name and phone number.' });
+    if (name && (name.length < 2 || name.length > 100)) return res.status(400).json({ message: 'Courier name must be between 2 and 100 characters.' });
+    if (phone && !/^[+\d][\d\s()-]{7,19}$/.test(phone)) return res.status(400).json({ message: 'Enter a valid courier phone number.' });
+    if (courierIsDemo && (process.env.NODE_ENV === 'production' || name !== 'Demo Courier Arjun (TEST ONLY)' || phone !== '9000000001')) return res.status(400).json({ message: 'The demo courier can only be assigned in local/test mode.' });
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    if (shopId) {
+      const shop = await Shop.findOne({ _id: shopId, approved: true, ...(process.env.NODE_ENV === 'production' ? { isDemo: { $ne: true } } : {}) }).select('_id').lean();
+      if (!shop) return res.status(400).json({ message: 'Assign an approved shop.' });
+      order.shopId = shop._id;
+    } else if (shopId === null) {
+      order.shopId = undefined;
+    }
+    if (name && !canAssignCourier(order.status)) return res.status(409).json({ message: 'Assign a courier after the shop marks the order Ready.' });
+    if (!name && order.status === 'Out for delivery') return res.status(409).json({ message: 'An order in delivery must keep its courier assignment.' });
+    order.courierName = name || undefined;
+    order.courierPhone = phone || undefined;
+    order.courierIsDemo = Boolean(name && courierIsDemo);
+    await order.save();
+    return res.json({ order });
   } catch (error) { return next(error); }
 });
 
@@ -363,6 +399,8 @@ app.patch('/api/orders/:id/status', dbRequired, authenticate, allowRoles('shop_o
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
     if (!isAllowedOrderTransition(order.status, status)) return res.status(409).json({ message: 'Orders must move one delivery step at a time. Terminal orders cannot be changed.' });
+    const assignmentError = orderAssignmentError(order, status);
+    if (assignmentError) return res.status(409).json({ message: assignmentError });
     if (status === 'Shop accepted' && order.paymentMethod === 'razorpay' && order.paymentStatus !== 'paid') return res.status(409).json({ message: 'Verify payment before accepting this online order.' });
     if (req.user.role === 'shop_owner' && !order.shopId) return res.status(403).json({ message: 'This order has not been assigned to a shop.' });
     if (req.user.role === 'shop_owner') {
@@ -374,7 +412,11 @@ app.patch('/api/orders/:id/status', dbRequired, authenticate, allowRoles('shop_o
     if (millingDate !== undefined) order.millingDate = new Date(millingDate);
     if (shelfLife !== undefined) order.shelfLife = String(shelfLife).slice(0, 120);
     if (storageInstructions !== undefined) order.storageInstructions = String(storageInstructions).slice(0, 500);
-    order.statusHistory.push({ status, note: typeof note === 'string' ? note.slice(0, 500) : '', at: new Date() });
+    const statusNotes = {
+      'Order prepared': 'The shop prepared and packed the order.',
+      'Delivery assigned': `${order.courierIsDemo ? 'Demo courier' : 'Courier'} ${order.courierName} was assigned to this delivery.`,
+    };
+    order.statusHistory.push({ status, note: typeof note === 'string' && note.trim() ? note.slice(0, 500) : statusNotes[status] || '', at: new Date() });
     await order.save();
     return res.json({ order });
   } catch (error) { return next(error); }
@@ -475,7 +517,7 @@ app.patch('/api/subscriptions/:id', dbRequired, authenticate, async (req, res, n
 
 app.get('/api/admin/overview', dbRequired, authenticate, allowRoles('admin'), async (_req, res, next) => {
   try {
-    const realShopFilter = { $nor: [{ slug: { $in: legacyDemoShopSlugs }, ownerId: { $exists: false }, address: /Bengaluru/i }] };
+    const realShopFilter = { isDemo: { $ne: true }, $nor: [{ slug: { $in: legacyDemoShopSlugs }, ownerId: { $exists: false }, address: /Bengaluru/i }] };
     const [customers, shops, pendingShops, orders, subscriptions, revenue] = await Promise.all([
       User.countDocuments({ role: 'customer' }), Shop.countDocuments({ ...realShopFilter, approved: true }), Shop.countDocuments({ ...realShopFilter, approved: false }), Order.countDocuments(), Subscription.countDocuments({ status: 'active' }), Order.aggregate([{ $match: { paymentStatus: { $in: ['paid', 'pay_on_delivery'] } } }, { $group: { _id: null, total: { $sum: '$total' } } }]),
     ]);
@@ -557,6 +599,23 @@ async function seedCatalog() {
   );
 }
 
+async function seedDemoShops() {
+  for (const shop of demoShops) {
+    await Shop.updateOne({ slug: shop.slug }, {
+      $setOnInsert: {
+        name: shop.name,
+        slug: shop.slug,
+        description: `DEMO ONLY — fictional test shop for ${shop.district}. Blend inspiration: ${shop.blend}. This is not a real business or verified delivery service.`,
+        address: `DEMO ADDRESS — ${shop.district}, Tamil Nadu (fictional test listing)`,
+        location: shop.location,
+        servicePincodes: shop.servicePincodes,
+        approved: true,
+        isDemo: true,
+      },
+    }, { upsert: true });
+  }
+}
+
 app.use((error, _req, res, _next) => {
   const status = error.status || (error instanceof multer.MulterError ? 400 : error.name === 'ValidationError' || error.code === 11000 ? 400 : 500);
   if (status === 500) console.error('API error:', error);
@@ -567,7 +626,8 @@ if (process.env.MONGODB_URI) {
   mongoose.connect(process.env.MONGODB_URI).then(async () => {
     console.log('Connected to MongoDB.');
     await seedCatalog();
-    console.log('Starter catalog is ready. Add verified Chennai/Tamil Nadu shops from the admin dashboard.');
+    if (process.env.NODE_ENV !== 'production') await seedDemoShops();
+    console.log('Starter catalog is ready. Demo shops are available only outside production; add verified Chennai/Tamil Nadu shops for live orders.');
   }).catch((error) => console.error('MongoDB connection failed:', error.message));
 } else {
   console.warn('MONGODB_URI is not set; database-backed API endpoints will return 503.');

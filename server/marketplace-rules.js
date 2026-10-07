@@ -4,8 +4,10 @@ export const orderStatuses = [
   'Ingredients checked',
   'Milling',
   'Quality check',
+  'Order prepared',
   'Packed',
   'Ready',
+  'Delivery assigned',
   'Out for delivery',
   'Delivered',
 ];
@@ -30,6 +32,10 @@ export function shopCoversPincode(shop, pincode) {
   return Boolean(pincode && shop?.approved && shop.servicePincodes?.includes(pincode));
 }
 
+export function shopCanServeAddress(shop, pincode, allowDemoShops = false) {
+  return shopCoversPincode(shop, pincode) && (allowDemoShops || shop.isDemo !== true);
+}
+
 export function shopReadiness(shop) {
   const pincodes = normalizePincodes(shop?.servicePincodes);
   return {
@@ -46,6 +52,16 @@ export function isAllowedOrderTransition(current, next) {
   if (next === 'Cancelled') return false;
   return orderStatuses[orderStatuses.indexOf(next)] === next
     && orderStatuses.indexOf(next) === orderStatuses.indexOf(current) + 1;
+}
+
+export function orderAssignmentError(order, nextStatus) {
+  if (nextStatus === 'Shop accepted' && !order.shopId) return 'Assign this order to a shop before it can be accepted.';
+  if (['Delivery assigned', 'Out for delivery'].includes(nextStatus) && (!order.courierName || !order.courierPhone)) return 'Assign a courier name and phone number before delivery assignment or dispatch.';
+  return null;
+}
+
+export function canAssignCourier(status) {
+  return ['Ready', 'Delivery assigned', 'Out for delivery'].includes(status);
 }
 
 export function nextOrderStatuses(current) {

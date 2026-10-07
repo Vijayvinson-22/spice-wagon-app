@@ -2081,6 +2081,7 @@ function AdminDashboardPage({ user, notify }) {
 
 function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
   const assignableShops = shops.filter((shop) => shop.approved && (!import.meta.env.PROD || !shop.isDemo));
+  const visibleShopOptions = shops;
   const [shopId, setShopId] = useState(String(order.shopId?._id || order.shopId || ''));
   const [courierName, setCourierName] = useState(order.courierName || '');
   const [courierPhone, setCourierPhone] = useState(order.courierPhone || '');
@@ -2131,7 +2132,17 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
     <label>ASSIGN SHOP
       <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
         <option value="">Unassigned</option>
-        {assignableShops.map((shop) => <option value={shop._id} key={shop._id}>{shop.name}{shop.isDemo ? ' · DEMO TEST ONLY' : ''}</option>)}
+        {visibleShopOptions.map((shop) => {
+          const unavailable = !shop.approved || (import.meta.env.PROD && shop.isDemo);
+          const labels = [
+            shop.isDemo ? 'DEMO TEST ONLY' : '',
+            !shop.approved ? 'PENDING APPROVAL' : '',
+            import.meta.env.PROD && shop.isDemo ? 'UNAVAILABLE IN PRODUCTION' : '',
+          ].filter(Boolean).join(' · ');
+          return <option value={shop._id} key={shop._id} disabled={unavailable}>
+            {shop.name}{labels ? ` · ${labels}` : ''}
+          </option>;
+        })}
       </select>
     </label>
     <label>COURIER

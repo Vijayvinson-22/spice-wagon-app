@@ -1973,6 +1973,7 @@ function AdminDashboardPage({ user, notify }) {
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [productsList, setProductsList] = useState([]);
+  const [orderStatusErrors, setOrderStatusErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const refresh = async () => {
@@ -2017,11 +2018,19 @@ function AdminDashboardPage({ user, notify }) {
     } catch (error) { notify(error.message); }
   };
   const updateOrder = async (order, status) => {
+    setOrderStatusErrors((errors) => {
+      const next = { ...errors };
+      delete next[order._id];
+      return next;
+    });
     try {
       await apiRequest(`/api/orders/${order._id}/status`, user.token, { method: 'PATCH', body: JSON.stringify({ status }) });
       await refresh();
       notify('Marketplace order updated');
-    } catch (error) { notify(error.message); }
+    } catch (error) {
+      setOrderStatusErrors((errors) => ({ ...errors, [order._id]: error.message }));
+      notify(error.message);
+    }
   };
   const updateInventory = async (product, inventory) => {
     try {
@@ -2061,7 +2070,7 @@ function AdminDashboardPage({ user, notify }) {
       <section className="dashboard-panel dashboard-orders"><div className="dashboard-panel-heading"><div><span>THE WHOLE MARKETPLACE</span><h2>Orders & delivery.</h2></div></div>{orders.length ? orders.map((order) => {
         const latestUpdate = order.statusHistory?.[order.statusHistory.length - 1];
         return <div className="admin-order-group" key={order._id}>
-          <div className="admin-simple-row admin-order-row"><span><strong>#{String(order._id).slice(-6)} · {order.items.map((item) => item.name).join(', ')}</strong><small>{order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Razorpay'} · {order.paymentStatus} · {formatPrice(order.total)}</small><small>{latestUpdate?.at ? `Status updated ${new Date(latestUpdate.at).toLocaleString('en-IN')}` : 'No status history recorded yet'}</small><address className="admin-order-address">{order.deliveryAddress}</address>{order.deliveryLocation && <small>Optional GPS pin saved · accuracy ±{Math.round(order.deliveryLocation.accuracy || 0)} m</small>}</span><select aria-label={`Order ${order._id} status`} value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{orderStatusChoices(order.status).map((status) => <option key={status}>{status}</option>)}</select></div>
+          <div className="admin-simple-row admin-order-row"><span><strong>#{String(order._id).slice(-6)} · {order.items.map((item) => item.name).join(', ')}</strong><small>{order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Razorpay'} · {order.paymentStatus} · {formatPrice(order.total)}</small><small>{latestUpdate?.at ? `Status updated ${new Date(latestUpdate.at).toLocaleString('en-IN')}` : 'No status history recorded yet'}</small><address className="admin-order-address">{order.deliveryAddress}</address>{order.shopId?.name && <small>Assigned shop: {order.shopId.name}{order.shopId.isDemo ? ' · DEMO TEST ONLY' : ''}</small>}{order.courierName && <small>Courier: {order.courierName} · {order.courierPhone}</small>}{order.deliveryLocation && <small>Optional GPS pin saved · accuracy ±{Math.round(order.deliveryLocation.accuracy || 0)} m</small>}{orderStatusErrors[order._id] && <small className="admin-order-status-error" role="alert">{orderStatusErrors[order._id]}</small>}</span><select aria-label={`Order ${order._id} status`} value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{orderStatusChoices(order.status).map((status) => <option key={status}>{status}</option>)}</select></div>
           <AdminOrderAssignment order={order} shops={shopsList} user={user} notify={notify} onSaved={refresh} />
         </div>;
       }) : <p className="dashboard-empty">No orders to review yet.</p>}</section>

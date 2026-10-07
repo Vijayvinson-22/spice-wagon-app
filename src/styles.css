@@ -1109,6 +1109,7 @@ body :is(small, .nav-item, .nav-heading, .copyright, .breadcrumb, .eyebrow, .new
 .page-admin-dashboard .admin-simple-row strong { font-size: 14px; }
 .page-admin-dashboard .admin-simple-row small { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .page-admin-dashboard .admin-order-address { font-size: 15px; line-height: 1.55; }
+.page-admin-dashboard .admin-order-status-error { display: block; margin-top: 6px; color: #a13928; font-size: 13px; font-weight: 600; line-height: 1.5; }
 .admin-order-group { margin-top: 10px; padding: 12px; border: 1px solid #e8e4da; background: #fffefa; }
 .admin-order-group .admin-order-row { margin: 0; border: 0; }
 .admin-order-assignment { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e9e7de; }

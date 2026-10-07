@@ -1119,6 +1119,9 @@ body :is(small, .nav-item, .nav-heading, .copyright, .breadcrumb, .eyebrow, .new
 .admin-order-assignment .demo-courier-note { color: #80521c; font-size: 11px; font-weight: 500; letter-spacing: 0; line-height: 1.4; }
 .admin-order-assignment > button { min-height: 40px; white-space: nowrap; }
 .admin-order-assignment > button:disabled { opacity: .6; }
+.admin-order-assignment > .admin-order-status-error,
+.admin-order-assignment > .admin-order-assignment-hint { grid-column: 1 / -1; margin: 0; }
+.admin-order-assignment-hint { color: #6d6d62; font-size: 12px; line-height: 1.5; }
 .page-admin-dashboard .admin-order-row > select { min-height: 42px; font-size: 14px; }
 .dashboard-catalog-panel { overflow: hidden; }
 .dashboard-catalog-intro { margin: -4px 0 14px; color: #74766b; font-size: 14px; line-height: 1.5; }

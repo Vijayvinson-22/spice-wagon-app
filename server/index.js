@@ -376,8 +376,9 @@ app.patch('/api/admin/orders/:id/assignment', dbRequired, authenticate, allowRol
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
     if (shopId) {
-      const shop = await Shop.findOne({ _id: shopId, approved: true, ...(process.env.NODE_ENV === 'production' ? { isDemo: { $ne: true } } : {}) }).select('_id').lean();
-      if (!shop) return res.status(400).json({ message: 'Assign an approved shop.' });
+      const shop = await Shop.findOne({ _id: shopId, approved: true }).select('_id isDemo').lean();
+      if (!shop) return res.status(400).json({ message: 'The selected shop is not approved. Approve a real shop before assigning this order.' });
+      if (process.env.NODE_ENV === 'production' && shop.isDemo) return res.status(400).json({ message: 'Demo shops cannot be assigned to live orders. Add and approve a real shop in the Admin dashboard.' });
       order.shopId = shop._id;
     } else if (shopId === null) {
       order.shopId = undefined;

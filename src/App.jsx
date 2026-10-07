@@ -2080,11 +2080,13 @@ function AdminDashboardPage({ user, notify }) {
 }
 
 function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
+  const assignableShops = shops.filter((shop) => shop.approved && (!import.meta.env.PROD || !shop.isDemo));
   const [shopId, setShopId] = useState(String(order.shopId?._id || order.shopId || ''));
   const [courierName, setCourierName] = useState(order.courierName || '');
   const [courierPhone, setCourierPhone] = useState(order.courierPhone || '');
   const [courierIsDemo, setCourierIsDemo] = useState(order.courierIsDemo === true);
   const [saving, setSaving] = useState(false);
+  const [assignmentError, setAssignmentError] = useState('');
   const courierAssignable = ['Ready', 'Delivery assigned', 'Out for delivery'].includes(order.status);
 
   useEffect(() => {
@@ -2108,6 +2110,7 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
 
   const saveAssignment = async (event) => {
     event.preventDefault();
+    setAssignmentError('');
     setSaving(true);
     try {
       await apiRequest(`/api/admin/orders/${order._id}/assignment`, user.token, {
@@ -2117,6 +2120,7 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
       await onSaved();
       notify('Order assignment saved');
     } catch (error) {
+      setAssignmentError(error.message);
       notify(error.message);
     } finally {
       setSaving(false);
@@ -2127,7 +2131,7 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
     <label>ASSIGN SHOP
       <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
         <option value="">Unassigned</option>
-        {shops.filter((shop) => shop.approved).map((shop) => <option value={shop._id} key={shop._id}>{shop.name}{shop.isDemo ? ' · DEMO TEST ONLY' : ''}</option>)}
+        {assignableShops.map((shop) => <option value={shop._id} key={shop._id}>{shop.name}{shop.isDemo ? ' · DEMO TEST ONLY' : ''}</option>)}
       </select>
     </label>
     <label>COURIER
@@ -2142,6 +2146,8 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
       <input value={courierPhone} onChange={(event) => { setCourierIsDemo(false); setCourierPhone(event.target.value); }} disabled={!courierAssignable || courierIsDemo} maxLength="20" inputMode="tel" placeholder="Courier contact number" />
     </label>
     <button className="button-outline" disabled={saving}>{saving ? 'Saving…' : 'Save assignment'}</button>
+    {assignmentError && <small className="admin-order-status-error" role="alert">{assignmentError}</small>}
+    {import.meta.env.PROD && assignableShops.length === 0 && <small className="admin-order-assignment-hint">No approved live shops are available. Add a real shop and approve it above before assigning this order.</small>}
   </form>;
 }
 

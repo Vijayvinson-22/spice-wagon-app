@@ -582,8 +582,17 @@ function App() {
         }
       } catch (error) { setToast(error.message); }
     };
-    const timeout = window.setInterval(refreshCustomerOrders, 30000);
-    return () => window.clearInterval(timeout);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshCustomerOrders();
+    };
+    const timeout = window.setInterval(refreshWhenVisible, 5000);
+    window.addEventListener('focus', refreshCustomerOrders);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timeout);
+      window.removeEventListener('focus', refreshCustomerOrders);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [user?.token, activeOrder?.id]);
 
   const filteredProducts = useMemo(() => {
@@ -1970,6 +1979,7 @@ function AdminInventoryRow({ product, onSave }) {
 function AdminDashboardPage({ user, notify }) {
   const [dashboard, setDashboard] = useState(null);
   const [shopsList, setShopsList] = useState([]);
+  const [allowDemoShopAssignments, setAllowDemoShopAssignments] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [productsList, setProductsList] = useState([]);
@@ -1989,6 +1999,7 @@ function AdminDashboardPage({ user, notify }) {
       ]);
       setDashboard(results[0]);
       setShopsList(results[1].shops);
+      setAllowDemoShopAssignments(results[1].allowDemoShopAssignments === true);
       setCustomers(results[2].customers);
       setOrders(results[3].orders);
       setProductsList(results[4].items);
@@ -2071,7 +2082,7 @@ function AdminDashboardPage({ user, notify }) {
         const latestUpdate = order.statusHistory?.[order.statusHistory.length - 1];
         return <div className="admin-order-group" key={order._id}>
           <div className="admin-simple-row admin-order-row"><span><strong>#{String(order._id).slice(-6)} · {order.items.map((item) => item.name).join(', ')}</strong><small>{order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Razorpay'} · {order.paymentStatus} · {formatPrice(order.total)}</small><small>{latestUpdate?.at ? `Status updated ${new Date(latestUpdate.at).toLocaleString('en-IN')}` : 'No status history recorded yet'}</small><address className="admin-order-address">{order.deliveryAddress}</address>{order.shopId?.name && <small>Assigned shop: {order.shopId.name}{order.shopId.isDemo ? ' · DEMO TEST ONLY' : ''}</small>}{order.courierName && <small>Courier: {order.courierName} · {order.courierPhone}</small>}{order.deliveryLocation && <small>Optional GPS pin saved · accuracy ±{Math.round(order.deliveryLocation.accuracy || 0)} m</small>}{orderStatusErrors[order._id] && <small className="admin-order-status-error" role="alert">{orderStatusErrors[order._id]}</small>}</span><select aria-label={`Order ${order._id} status`} value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{orderStatusChoices(order.status).map((status) => <option key={status}>{status}</option>)}</select></div>
-          <AdminOrderAssignment order={order} shops={shopsList} user={user} notify={notify} onSaved={refresh} />
+          <AdminOrderAssignment order={order} shops={shopsList} allowDemoShopAssignments={allowDemoShopAssignments} user={user} notify={notify} onSaved={refresh} />
         </div>;
       }) : <p className="dashboard-empty">No orders to review yet.</p>}</section>
       <Footer />
@@ -2079,8 +2090,8 @@ function AdminDashboardPage({ user, notify }) {
   );
 }
 
-function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
-  const assignableShops = shops.filter((shop) => shop.approved && (!import.meta.env.PROD || !shop.isDemo));
+function AdminOrderAssignment({ order, shops, allowDemoShopAssignments, user, notify, onSaved }) {
+  const assignableShops = shops.filter((shop) => shop.approved && (!shop.isDemo || allowDemoShopAssignments));
   const visibleShopOptions = shops;
   const [shopId, setShopId] = useState(String(order.shopId?._id || order.shopId || ''));
   const [courierName, setCourierName] = useState(order.courierName || '');
@@ -2133,11 +2144,11 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
       <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
         <option value="">Unassigned</option>
         {visibleShopOptions.map((shop) => {
-          const unavailable = !shop.approved || (import.meta.env.PROD && shop.isDemo);
+          const unavailable = !shop.approved || (shop.isDemo && !allowDemoShopAssignments);
           const labels = [
             shop.isDemo ? 'DEMO TEST ONLY' : '',
             !shop.approved ? 'PENDING APPROVAL' : '',
-            import.meta.env.PROD && shop.isDemo ? 'UNAVAILABLE IN PRODUCTION' : '',
+            shop.isDemo && !allowDemoShopAssignments ? 'TEST MODE DISABLED' : '',
           ].filter(Boolean).join(' · ');
           return <option value={shop._id} key={shop._id} disabled={unavailable}>
             {shop.name}{labels ? ` · ${labels}` : ''}
@@ -2146,9 +2157,9 @@ function AdminOrderAssignment({ order, shops, user, notify, onSaved }) {
       </select>
     </label>
     <label>COURIER
-      <select value={courierIsDemo ? 'demo' : 'manual'} onChange={selectCourier} disabled={!courierAssignable || !import.meta.env.DEV}>
+      <select value={courierIsDemo ? 'demo' : 'manual'} onChange={selectCourier} disabled={!courierAssignable}>
         <option value="manual">Enter real courier details</option>
-        {import.meta.env.DEV && <option value="demo">Demo Courier Arjun · TEST ONLY</option>}
+        {allowDemoShopAssignments && <option value="demo">Demo Courier Arjun · TEST ONLY</option>}
       </select>
       <input aria-label="Courier name" value={courierName} onChange={(event) => { setCourierIsDemo(false); setCourierName(event.target.value); }} disabled={!courierAssignable || courierIsDemo} maxLength="100" placeholder={courierAssignable ? 'Courier full name' : 'Available when order is Ready'} />
       {courierIsDemo && <small className="demo-courier-note">Fictional test courier and phone number; not for contacting a real driver.</small>}

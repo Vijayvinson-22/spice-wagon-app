@@ -19,6 +19,7 @@ import { verifyRazorpaySignature } from './payment-rules.js';
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
+const allowDemoShopAssignments = process.env.ALLOW_DEMO_SHOP_ASSIGNMENTS === 'true';
 const legacyDemoShopSlugs = ['spice-route-mill', 'ammammas-pantry', 'mysore-heritage-masalas'];
 const demoShops = [
   { name: 'DEMO · Chennai Heritage Masala Mill', slug: 'demo-chennai-heritage-masala-mill', district: 'Chennai', servicePincodes: ['600083'], location: { lat: 13.0258, lng: 80.2211 }, blend: 'Chennai-style sambar and rasam blends' },
@@ -372,13 +373,13 @@ app.patch('/api/admin/orders/:id/assignment', dbRequired, authenticate, allowRol
     if (Boolean(name) !== Boolean(phone)) return res.status(400).json({ message: 'Enter both the courier name and phone number.' });
     if (name && (name.length < 2 || name.length > 100)) return res.status(400).json({ message: 'Courier name must be between 2 and 100 characters.' });
     if (phone && !/^[+\d][\d\s()-]{7,19}$/.test(phone)) return res.status(400).json({ message: 'Enter a valid courier phone number.' });
-    if (courierIsDemo && (process.env.NODE_ENV === 'production' || name !== 'Demo Courier Arjun (TEST ONLY)' || phone !== '9000000001')) return res.status(400).json({ message: 'The demo courier can only be assigned in local/test mode.' });
+    if (courierIsDemo && (!allowDemoShopAssignments || name !== 'Demo Courier Arjun (TEST ONLY)' || phone !== '9000000001')) return res.status(400).json({ message: 'Demo courier assignment is disabled. Set ALLOW_DEMO_SHOP_ASSIGNMENTS=true only for testing.' });
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
     if (shopId) {
       const shop = await Shop.findOne({ _id: shopId, approved: true }).select('_id isDemo').lean();
       if (!shop) return res.status(400).json({ message: 'The selected shop is not approved. Approve a real shop before assigning this order.' });
-      if (process.env.NODE_ENV === 'production' && shop.isDemo) return res.status(400).json({ message: 'Demo shops cannot be assigned to live orders. Add and approve a real shop in the Admin dashboard.' });
+      if (shop.isDemo && !allowDemoShopAssignments) return res.status(400).json({ message: 'Demo shop assignment is disabled. Set ALLOW_DEMO_SHOP_ASSIGNMENTS=true only for testing, or assign an approved real shop.' });
       order.shopId = shop._id;
     } else if (shopId === null) {
       order.shopId = undefined;
@@ -537,7 +538,10 @@ app.get('/api/admin/customers', dbRequired, authenticate, allowRoles('admin'), a
 app.get('/api/admin/shops', dbRequired, authenticate, allowRoles('admin'), async (_req, res, next) => {
   try {
     const filter = { $nor: [{ slug: { $in: legacyDemoShopSlugs }, ownerId: { $exists: false }, address: /Bengaluru/i }] };
-    return res.json({ shops: await Shop.find(filter).sort({ approved: 1, createdAt: -1 }).limit(200).lean() });
+    return res.json({
+      shops: await Shop.find(filter).sort({ approved: 1, createdAt: -1 }).limit(200).lean(),
+      allowDemoShopAssignments,
+    });
   }
   catch (error) { return next(error); }
 });
